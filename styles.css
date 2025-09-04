@@ -1,0 +1,265 @@
+/* =================================
+   ESTILOS PERSONALIZADOS TIENDA
+   ================================= */
+
+/* Loading Spinner */
+.loading-spinner {
+  border: 4px solid #f3f4f6;
+  border-top: 4px solid #ec4899;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { 
+    transform: rotate(0deg); 
+  }
+  100% { 
+    transform: rotate(360deg); 
+  }
+}
+
+/* Badge de Oferta Animado */
+.offer-badge {
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+/* Tarjetas de Producto */
+.product-card {
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.product-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 
+              0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+/* Animación de Entrada */
+.fade-in {
+  animation: fadeIn 0.5s ease-in;
+}
+
+@keyframes fadeIn {
+  from { 
+    opacity: 0; 
+    transform: translateY(20px); 
+  }
+  to { 
+    opacity: 1; 
+    transform: translateY(0); 
+  }
+}
+
+/* Efectos de Hover para Botones */
+.btn-hover-effect {
+  transition: all 0.3s ease;
+}
+
+.btn-hover-effect:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 15px rgba(0, 0, 0, 0.1);
+}
+
+/* Personalización de Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(45deg, #ec4899, #8b5cf6);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(45deg, #db2777, #7c3aed);
+}
+
+/* Efectos de Focus Mejorados */
+.focus-enhanced:focus {
+  outline: none;
+  border-color: #ec4899;
+  box-shadow: 0 0 0 3px rgba(236, 72, 153, 0.1);
+  transform: scale(1.02);
+}
+
+/* Animación para el Header */
+header {
+  backdrop-filter: blur(10px);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+/* Efectos de Gradiente para Texto */
+.gradient-text {
+  background: linear-gradient(45deg, #ec4899, #8b5cf6, #06b6d4);
+  background-size: 200% 200%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: gradientShift 3s ease infinite;
+}
+
+@keyframes gradientShift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* Sombras Personalizadas */
+.shadow-elegant {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 
+              0 2px 4px -1px rgba(0, 0, 0, 0.06),
+              0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+
+.shadow-elegant:hover {
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 
+              0 10px 10px -5px rgba(0, 0, 0, 0.04),
+              0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+
+/* Efectos para Imágenes */
+.image-hover-effect {
+  transition: all 0.3s ease;
+  overflow: hidden;
+}
+
+.image-hover-effect img {
+  transition: transform 0.3s ease;
+}
+
+.image-hover-effect:hover img {
+  transform: scale(1.1);
+}
+
+/* Indicadores de Stock */
+.stock-indicator {
+  position: relative;
+}
+
+.stock-indicator::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #10b981;
+}
+
+.stock-indicator.out-of-stock::before {
+  background-color: #ef4444;
+}
+
+.stock-indicator.low-stock::before {
+  background-color: #f59e0b;
+}
+
+/* Responsive Improvements */
+@media (max-width: 768px) {
+  .product-card {
+    margin-bottom: 1rem;
+  }
+  
+  .container {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+  
+  .grid-responsive {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  }
+}
+
+/* Animaciones de Micro-interacciones */
+.micro-bounce {
+  transition: transform 0.2s ease;
+}
+
+.micro-bounce:active {
+  transform: scale(0.95);
+}
+
+/* Efectos de Glassmorphism */
+.glass-effect {
+  background: rgba(255, 255, 255, 0.25);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+/* Loading States */
+.skeleton {
+  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background-size: 200% 100%;
+  animation: loading 1.5s infinite;
+}
+
+@keyframes loading {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Mejoras de Accesibilidad */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Estados de Error */
+.error-state {
+  color: #ef4444;
+  border-color: #ef4444;
+  background-color: #fef2f2;
+}
+
+.error-state:focus {
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+}
+
+/* Estados de Éxito */
+.success-state {
+  color: #10b981;
+  border-color: #10b981;
+  background-color: #f0fdf4;
+}
+
+/* Utilidades Adicionales */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
