@@ -1,10 +1,6 @@
-// =================================
-//    TIENDA DE PRODUCTOS - JS
-// =================================
-
-// 🔧 Configuración Firebase
+// 🔥 Configuración Firebase
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-import { getFirestore, collection, query, where, orderBy, limit, startAfter, endBefore, getDocs } 
+import { getFirestore, collection, query, where, orderBy, limit, startAfter, endBefore, getDocs, limitToLast } 
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -23,12 +19,15 @@ const db = getFirestore(app);
 
 
 // 📊 Variables globales
-const PRODUCTOS_POR_PAGINA = 8;
+const PRODUCTOS_POR_PAGINA = 10;
 let ultimoDoc = null;
 let primerDoc = null;
-let stackDocs = [];
 let paginaActual = 1;
 let totalProductosMostrados = 0;
+let filtrosActivos = {}; // Para mantener consistencia en los filtros
+let modoBuffer = false; // Indica si estamos en modo búsqueda por buffer
+let productosBuffer = []; // Buffer para productos de búsqueda
+let indiceBuffer = 0; // Índice actual en el buffer
 
 // 📱 Elementos del DOM
 const elementos = {
@@ -53,39 +52,47 @@ const elementos = {
 
 /**
  * 🔍 Construir consulta Firestore con filtros
- * @param {string} direccion - Dirección de paginación ('next' o 'prev')
+ * @param {string} direccion - Dirección de paginación ('next', 'prev', o 'first')
  * @returns {Query} Consulta de Firestore
  */
-function construirQuery(direccion = "next") {
-  const filtros = obtenerFiltros();
-  let query = db.collection("productos");
+function construirQuery(direccion = "first") {
+  const productosRef = collection(db, 'productos');
+  let condiciones = [];
 
-  // Aplicar filtros exactos
-  if (filtros.categoria) {
-    query = query.where("categoriaNombre", "==", filtros.categoria);
+  // Aplicar filtros exactos usando los filtros guardados para mantener consistencia
+  if (filtrosActivos.categoria) {
+    condiciones.push(where("categoriaNombre", "==", filtrosActivos.categoria));
   }
-  if (filtros.marca) {
-    query = query.where("marcaNombre", "==", filtros.marca);
+  if (filtrosActivos.marca) {
+    condiciones.push(where("marcaNombre", "==", filtrosActivos.marca));
   }
-  if (filtros.genero) {
-    query = query.where("genero", "==", filtros.genero);
+  if (filtrosActivos.genero) {
+    condiciones.push(where("genero", "==", filtrosActivos.genero));
   }
 
   // Ordenamiento
-  query = query.orderBy("precioVenta", filtros.orden);
+  condiciones.push(orderBy("precioVenta", filtrosActivos.orden || "asc"));
 
-  // Paginación
+  // Paginación mejorada
   if (direccion === "next" && ultimoDoc) {
-    query = query.startAfter(ultimoDoc);
+    condiciones.push(startAfter(ultimoDoc));
+    condiciones.push(limit(PRODUCTOS_POR_PAGINA));
   } else if (direccion === "prev" && primerDoc) {
-    query = query.endBefore(primerDoc);
+    // Para ir hacia atrás, necesitamos una consulta inversa
+    const ordenInverso = filtrosActivos.orden === "asc" ? "desc" : "asc";
+    condiciones = condiciones.slice(0, -1); // Remover el orderBy anterior
+    condiciones.push(orderBy("precioVenta", ordenInverso));
+    condiciones.push(startAfter(primerDoc));
+    condiciones.push(limit(PRODUCTOS_POR_PAGINA));
+  } else {
+    condiciones.push(limit(PRODUCTOS_POR_PAGINA));
   }
 
-  return query.limit(PRODUCTOS_POR_PAGINA);
+  return query(productosRef, ...condiciones);
 }
 
 /**
- * 🎯 Obtener filtros actuales del formulario
+ * 🔽 Obtener filtros actuales del formulario
  * @returns {Object} Objeto con todos los filtros
  */
 function obtenerFiltros() {
@@ -94,40 +101,223 @@ function obtenerFiltros() {
     categoria: elementos.categoria.value,
     marca: elementos.marca.value,
     genero: elementos.genero.value,
-    orden: elementos.orden.value
+    orden: elementos.orden.value || "asc"
   };
 }
 
 /**
- * 📦 Cargar productos desde Firestore
- * @param {string} direccion - Dirección de navegación
+ * 🔍 Búsqueda inteligente en toda la colección de Firestore
+ * @param {string} textoBusqueda - Término de búsqueda
  */
-async function cargarProductos(direccion = "next") {
+async function realizarBusquedaInteligente(textoBusqueda) {
   mostrarLoading(true);
   
   try {
-    const query = construirQuery(direccion);
-    const snapshot = await query.get();
-
-    if (snapshot.empty) {
+    console.log(`🔍 Iniciando búsqueda inteligente para: "${textoBusqueda}"`);
+    
+    // Construir consulta para buscar en toda la colección
+    const productosRef = collection(db, 'productos');
+    let condiciones = [];
+    
+    // Aplicar otros filtros (excepto búsqueda por texto)
+    if (filtrosActivos.categoria) {
+      condiciones.push(where("categoriaNombre", "==", filtrosActivos.categoria));
+    }
+    if (filtrosActivos.marca) {
+      condiciones.push(where("marcaNombre", "==", filtrosActivos.marca));
+    }
+    if (filtrosActivos.genero) {
+      condiciones.push(where("genero", "==", filtrosActivos.genero));
+    }
+    
+    // Ordenamiento
+    condiciones.push(orderBy("precioVenta", filtrosActivos.orden || "asc"));
+    
+    // Obtener TODOS los productos que coincidan con los filtros (sin límite para búsqueda)
+    const q = query(productosRef, ...condiciones);
+    const snapshot = await getDocs(q);
+    
+    console.log(`📊 Productos obtenidos de Firestore: ${snapshot.docs.length}`);
+    
+    // Filtrar por texto de búsqueda en memoria
+    const productosFiltrados = snapshot.docs.filter(doc => {
+      const producto = doc.data();
+      const nombre = producto.nombre.toLowerCase();
+      const descripcion = (producto.descripcion || '').toLowerCase();
+      const categoria = (producto.categoriaNombre || '').toLowerCase();
+      const marca = (producto.marcaNombre || '').toLowerCase();
+      
+      return nombre.includes(textoBusqueda) || 
+             descripcion.includes(textoBusqueda) ||
+             categoria.includes(textoBusqueda) ||
+             marca.includes(textoBusqueda);
+    });
+    
+    console.log(`🎯 Productos encontrados con búsqueda: ${productosFiltrados.length}`);
+    
+    if (productosFiltrados.length === 0) {
+      // No se encontraron productos
       mostrarProductosVacios();
+      mostrarNotificacion(`🔍 No se encontraron productos que coincidan con "${textoBusqueda}"`, 'info');
       return;
     }
+    
+    // Cambiar a modo buffer para manejar los resultados de búsqueda
+    modoBuffer = true;
+    productosBuffer = productosFiltrados;
+    indiceBuffer = 0;
+    paginaActual = 1;
+    
+    // Mostrar la primera página de resultados
+    mostrarPaginaBuffer();
+    
+    mostrarNotificacion(`🎉 Se encontraron ${productosFiltrados.length} productos`, 'success');
+    
+  } catch (error) {
+    console.error("❌ Error en búsqueda inteligente:", error);
+    mostrarError();
+    mostrarNotificacion('❌ Error en la búsqueda', 'error');
+  } finally {
+    mostrarLoading(false);
+  }
+}
 
-    // Gestionar documentos para paginación
-    primerDoc = snapshot.docs[0];
-    ultimoDoc = snapshot.docs[snapshot.docs.length - 1];
+/**
+ * 📄 Mostrar página del buffer de búsqueda
+ */
+function mostrarPaginaBuffer() {
+  const inicio = indiceBuffer;
+  const fin = Math.min(inicio + PRODUCTOS_POR_PAGINA, productosBuffer.length);
+  const productosPagina = productosBuffer.slice(inicio, fin);
+  
+  console.log(`📄 Mostrando productos ${inicio + 1}-${fin} de ${productosBuffer.length}`);
+  
+  // Renderizar productos de la página actual
+  renderizarProductosBuffer(productosPagina);
+  
+  // Actualizar estado de paginación para modo buffer
+  actualizarEstadoPaginacionBuffer();
+}
 
-    if (direccion === "next") {
-      stackDocs.push(primerDoc);
-      paginaActual++;
-    } else if (direccion === "prev") {
-      stackDocs.pop();
-      paginaActual--;
+/**
+ * 🎨 Renderizar productos del buffer
+ * @param {Array} docs - Documentos de Firestore
+ */
+async function renderizarProductosBuffer(docs) {
+  elementos.productos.innerHTML = "";
+  totalProductosMostrados = 0;
+
+  if (docs.length === 0) {
+    mostrarProductosVacios();
+    return;
+  }
+
+  // Renderizar cada producto con animación escalonada
+  docs.forEach((doc, index) => {
+    setTimeout(() => {
+      const producto = doc.data();
+      producto.id = doc.id;
+      const card = crearTarjetaProducto(producto);
+      elementos.productos.appendChild(card);
+      totalProductosMostrados++;
+    }, index * 100);
+  });
+
+  // Actualizar contador después de renderizar
+  setTimeout(() => {
+    elementos.totalProductos.textContent = `${totalProductosMostrados} de ${productosBuffer.length}`;
+    elementos.noProductos.classList.add("hidden");
+    elementos.productos.classList.remove("hidden");
+  }, docs.length * 100);
+}
+
+/**
+ * 🎮 Actualizar estado de botones para modo buffer
+ */
+function actualizarEstadoPaginacionBuffer() {
+  const totalPaginas = Math.ceil(productosBuffer.length / PRODUCTOS_POR_PAGINA);
+  
+  elementos.prev.disabled = paginaActual <= 1;
+  elementos.next.disabled = paginaActual >= totalPaginas;
+  elementos.paginaActual.textContent = `${paginaActual} de ${totalPaginas}`;
+  
+  console.log(`🎮 Buffer paginación:`, {
+    paginaActual,
+    totalPaginas,
+    totalProductos: productosBuffer.length,
+    indiceBuffer
+  });
+}
+
+/**
+ * 📚 Cargar productos desde Firestore (modo normal)
+ * @param {string} direccion - Dirección de navegación
+ */
+async function cargarProductos(direccion = "first") {
+  // Si estamos en modo buffer y no es un reset, manejar navegación del buffer
+  if (modoBuffer && direccion !== "reset" && direccion !== "first") {
+    navegarBuffer(direccion);
+    return;
+  }
+  
+  // Salir del modo buffer si es necesario
+  if (modoBuffer && (direccion === "reset" || direccion === "first")) {
+    modoBuffer = false;
+    productosBuffer = [];
+    indiceBuffer = 0;
+  }
+  
+  mostrarLoading(true);
+  
+  try {
+    // Actualizar filtros activos al cargar
+    if (direccion === "first" || direccion === "reset") {
+      filtrosActivos = obtenerFiltros();
+      paginaActual = 1;
+      ultimoDoc = null;
+      primerDoc = null;
     }
 
-    await renderizarProductos(snapshot.docs);
-    actualizarEstadoPaginacion(snapshot.docs.length);
+    let q, snapshot;
+
+    if (direccion === "prev" && primerDoc && paginaActual > 1) {
+      // Para página anterior, construimos una consulta especial
+      q = construirQueryAnterior();
+      snapshot = await getDocs(q);
+      
+      if (!snapshot.empty) {
+        // Invertir el orden de los documentos ya que vienen al revés
+        const docs = snapshot.docs.reverse();
+        await renderizarProductos(docs);
+        
+        primerDoc = docs[0];
+        ultimoDoc = docs[docs.length - 1];
+        paginaActual--;
+        actualizarEstadoPaginacion(docs.length);
+      }
+    } else {
+      // Para primera página o siguiente página
+      q = construirQuery(direccion);
+      snapshot = await getDocs(q);
+
+      if (snapshot.empty) {
+        if (direccion === "first" || direccion === "reset") {
+          mostrarProductosVacios();
+        }
+        return;
+      }
+
+      // Gestionar documentos para paginación
+      primerDoc = snapshot.docs[0];
+      ultimoDoc = snapshot.docs[snapshot.docs.length - 1];
+
+      if (direccion === "next") {
+        paginaActual++;
+      }
+
+      await renderizarProductos(snapshot.docs);
+      actualizarEstadoPaginacion(snapshot.docs.length);
+    }
     
   } catch (error) {
     console.error("Error cargando productos:", error);
@@ -138,21 +328,90 @@ async function cargarProductos(direccion = "next") {
 }
 
 /**
+ * 🔄 Navegar en el buffer de resultados de búsqueda
+ * @param {string} direccion - 'next' o 'prev'
+ */
+function navegarBuffer(direccion) {
+  if (direccion === "next") {
+    const siguienteIndice = indiceBuffer + PRODUCTOS_POR_PAGINA;
+    if (siguienteIndice < productosBuffer.length) {
+      indiceBuffer = siguienteIndice;
+      paginaActual++;
+      mostrarPaginaBuffer();
+    }
+  } else if (direccion === "prev") {
+    const anteriorIndice = indiceBuffer - PRODUCTOS_POR_PAGINA;
+    if (anteriorIndice >= 0) {
+      indiceBuffer = anteriorIndice;
+      paginaActual--;
+      mostrarPaginaBuffer();
+    }
+  }
+}
+
+/**
+ * 🔙 Construir consulta para página anterior
+ */
+function construirQueryAnterior() {
+  const productosRef = collection(db, 'productos');
+  let condiciones = [];
+
+  // Aplicar los mismos filtros
+  if (filtrosActivos.categoria) {
+    condiciones.push(where("categoriaNombre", "==", filtrosActivos.categoria));
+  }
+  if (filtrosActivos.marca) {
+    condiciones.push(where("marcaNombre", "==", filtrosActivos.marca));
+  }
+  if (filtrosActivos.genero) {
+    condiciones.push(where("genero", "==", filtrosActivos.genero));
+  }
+
+  // Orden inverso para obtener la página anterior
+  const ordenInverso = filtrosActivos.orden === "asc" ? "desc" : "asc";
+  condiciones.push(orderBy("precioVenta", ordenInverso));
+  
+  // Empezar antes del primer documento actual
+  condiciones.push(endBefore(primerDoc));
+  condiciones.push(limitToLast(PRODUCTOS_POR_PAGINA));
+
+  return query(productosRef, ...condiciones);
+}
+
+/**
  * 🎨 Renderizar productos con animaciones
  * @param {Array} docs - Documentos de Firestore
  */
 async function renderizarProductos(docs) {
-  const filtros = obtenerFiltros();
   elementos.productos.innerHTML = "";
   totalProductosMostrados = 0;
 
-  // Aplicar filtro de búsqueda por texto
-  const docsFiltrados = docs.filter(doc => {
-    const producto = doc.data();
-    return !filtros.search || producto.nombre.toLowerCase().includes(filtros.search);
-  });
+  // Aplicar filtro de búsqueda por texto solo a los datos ya obtenidos
+  let docsFiltrados = docs;
+  if (filtrosActivos.search) {
+    docsFiltrados = docs.filter(doc => {
+      const producto = doc.data();
+      const nombre = producto.nombre.toLowerCase();
+      const descripcion = (producto.descripcion || '').toLowerCase();
+      const categoria = (producto.categoriaNombre || '').toLowerCase();
+      const marca = (producto.marcaNombre || '').toLowerCase();
+      
+      return nombre.includes(filtrosActivos.search) ||
+             descripcion.includes(filtrosActivos.search) ||
+             categoria.includes(filtrosActivos.search) ||
+             marca.includes(filtrosActivos.search);
+    });
+  }
 
   if (docsFiltrados.length === 0) {
+    // Si no hay resultados en la página actual y hay texto de búsqueda,
+    // realizar búsqueda en toda la colección
+    if (filtrosActivos.search) {
+      console.log("🔍 No se encontraron resultados en la página actual, buscando en toda la colección...");
+      await realizarBusquedaInteligente(filtrosActivos.search);
+      return;
+    }
+    
     mostrarProductosVacios();
     return;
   }
@@ -161,6 +420,7 @@ async function renderizarProductos(docs) {
   docsFiltrados.forEach((doc, index) => {
     setTimeout(() => {
       const producto = doc.data();
+      producto.id = doc.id; // Asegurar que el ID esté presente
       const card = crearTarjetaProducto(producto);
       elementos.productos.appendChild(card);
       totalProductosMostrados++;
@@ -176,7 +436,7 @@ async function renderizarProductos(docs) {
 }
 
 /**
- * 🏷️ Crear tarjeta de producto
+ * 🎯️ Crear tarjeta de producto
  * @param {Object} producto - Datos del producto
  * @returns {HTMLElement} Elemento DOM de la tarjeta
  */
@@ -184,10 +444,17 @@ function crearTarjetaProducto(producto) {
   const card = document.createElement("div");
   card.className = "product-card bg-white rounded-2xl shadow-lg overflow-hidden fade-in";
 
-  // Determinar si está en oferta
-  const descuento = producto.descuento || 0;
-  const enOferta = descuento > 10;
-  const precioOriginal = descuento > 0 ? producto.precioVenta / (1 - descuento/100) : null;
+  // Calcular descuento basado en precioCatalogo vs precioVenta
+  const precioCatalogo = producto.precioCatalogo || 0;
+  const precioVenta = producto.precioVenta || 0;
+  
+  let enPromocion = false;
+  let porcentajeDescuento = 0;
+  
+  if (precioCatalogo > 0 && precioVenta > 0 && precioCatalogo > precioVenta) {
+    porcentajeDescuento = Math.round(((precioCatalogo - precioVenta) / precioCatalogo) * 100);
+    enPromocion = porcentajeDescuento > 0;
+  }
 
   // Determinar estado del stock
   const stock = producto.stock || 0;
@@ -201,9 +468,9 @@ function crearTarjetaProducto(producto) {
            class="w-full h-48 object-cover"
            onerror="this.src='/api/placeholder/300/200'" />
       
-      ${enOferta ? `
-        <div class="offer-badge absolute top-3 left-3 bg-gradient-to-r from-red-500 to-pink-500 text-white px-3 py-1 rounded-full text-sm font-bold shadow-lg">
-          🏷️ EN OFERTA -${descuento}%
+      ${enPromocion ? `
+        <div class="offer-badge absolute top-3 left-3 bg-gradient-to-r from-orange-500 to-red-500 text-white px-3 py-1 rounded-full text-sm font-bold shadow-lg animate-pulse">
+          🎉 PROMOCIÓN -${porcentajeDescuento}%
         </div>
       ` : ''}
       
@@ -218,7 +485,7 @@ function crearTarjetaProducto(producto) {
       </div>
 
       <div class="flex items-center gap-2 mb-2">
-        <span class="text-sm text-gray-500">🏷️ ${producto.marcaNombre || 'Sin marca'}</span>
+        <span class="text-sm text-gray-500">🎯️${producto.marcaNombre || 'Sin marca'}</span>
         ${producto.genero ? `<span class="text-sm text-gray-500">• ${producto.genero}</span>` : ''}
       </div>
 
@@ -226,16 +493,21 @@ function crearTarjetaProducto(producto) {
 
       <div class="flex items-center justify-between mb-3">
         <div class="flex flex-col">
-          ${precioOriginal && enOferta ? `
-            <span class="text-sm text-gray-500 line-through">S/ ${precioOriginal.toFixed(2)}</span>
+          ${enPromocion && precioCatalogo > 0 ? `
+            <span class="text-sm text-gray-500 line-through font-medium">S/ ${precioCatalogo.toFixed(2)}</span>
           ` : ''}
-          <span class="text-2xl font-bold text-pink-600">S/ ${producto.precioVenta.toFixed(2)}</span>
+          <span class="text-2xl font-bold ${enPromocion ? 'text-red-600 animate-pulse' : 'text-pink-600'}">
+            S/ ${precioVenta.toFixed(2)}
+          </span>
+          ${enPromocion ? `
+            <span class="text-xs text-green-600 font-semibold">¡Ahorra S/ ${(precioCatalogo - precioVenta).toFixed(2)}!</span>
+          ` : ''}
         </div>
         
         <button class="btn-hover-effect micro-bounce bg-gradient-to-r from-pink-500 to-purple-500 text-white px-4 py-2 rounded-xl hover:shadow-lg transition-all transform hover:scale-105 ${stock === 0 ? 'opacity-50 cursor-not-allowed' : ''}" 
                 onclick="agregarAlCarrito('${producto.id || 'N/A'}')"
                 ${stock === 0 ? 'disabled' : ''}>
-          🛒 ${stock === 0 ? 'Agotado' : 'Agregar'}
+          📦 ${stock === 0 ? 'Agotado' : 'Agregar'}
         </button>
       </div>
 
@@ -255,7 +527,7 @@ function crearTarjetaProducto(producto) {
 // =================================
 
 /**
- * 🔄 Mostrar/ocultar loading spinner
+ * ⏳ Mostrar/ocultar loading spinner
  * @param {boolean} mostrar - Si mostrar o no el loading
  */
 function mostrarLoading(mostrar) {
@@ -283,7 +555,7 @@ function mostrarError() {
       <div class="text-6xl mb-4">⚠️</div>
       <h3 class="text-xl font-semibold text-red-600 mb-2">Error al cargar productos</h3>
       <p class="text-gray-500">Por favor, intenta de nuevo más tarde</p>
-      <button onclick="cargarProductos()" class="mt-4 px-4 py-2 bg-pink-500 text-white rounded-lg hover:bg-pink-600 transition-colors">
+      <button onclick="cargarProductos('reset')" class="mt-4 px-4 py-2 bg-pink-500 text-white rounded-lg hover:bg-pink-600 transition-colors">
         🔄 Reintentar
       </button>
     </div>
@@ -296,24 +568,37 @@ function mostrarError() {
 function resetearPaginacion() {
   ultimoDoc = null;
   primerDoc = null;
-  stackDocs = [];
   paginaActual = 1;
+  modoBuffer = false;
+  productosBuffer = [];
+  indiceBuffer = 0;
   elementos.paginaActual.textContent = paginaActual;
-  cargarProductos();
+  cargarProductos("reset");
 }
 
 /**
- * 🎛️ Actualizar estado de botones de paginación
+ * 🎮️ Actualizar estado de botones de paginación
  * @param {number} cantidadDocs - Cantidad de documentos obtenidos
  */
 function actualizarEstadoPaginacion(cantidadDocs) {
-  elementos.prev.disabled = stackDocs.length <= 1;
+  elementos.prev.disabled = paginaActual <= 1;
   elementos.next.disabled = cantidadDocs < PRODUCTOS_POR_PAGINA;
   elementos.paginaActual.textContent = paginaActual;
+  
+  // Debug mejorado
+  console.log(`🔍 Estado paginación:`, {
+    paginaActual,
+    cantidadDocs,
+    prevDisabled: elementos.prev.disabled,
+    nextDisabled: elementos.next.disabled,
+    tieneUltimoDoc: !!ultimoDoc,
+    tienePrimerDoc: !!primerDoc,
+    modoBuffer
+  });
 }
 
 /**
- * 🗑️ Limpiar todos los filtros
+ * 🧹️ Limpiar todos los filtros
  */
 function limpiarFiltros() {
   elementos.search.value = "";
@@ -343,14 +628,14 @@ function debounce(func, wait) {
 }
 
 /**
- * 🛒 Agregar producto al carrito (función placeholder)
+ * 📦 Agregar producto al carrito (función placeholder)
  * @param {string} productoId - ID del producto
  */
 function agregarAlCarrito(productoId) {
   console.log(`Agregando producto ${productoId} al carrito`);
   
   // Mostrar feedback visual
-  mostrarNotificacion('🛒 Producto agregado al carrito', 'success');
+  mostrarNotificacion('📦 Producto agregado al carrito', 'success');
   
   // Aquí iría la lógica real del carrito
   // Por ejemplo: localStorage, base de datos, etc.
@@ -396,20 +681,19 @@ function mostrarNotificacion(mensaje, tipo = 'info') {
 }
 
 /**
- * 🎯 Cargar opciones dinámicamente para los filtros
+ * 🔽 Cargar opciones dinámicamente para los filtros
  */
 async function cargarOpcionesFiltros() {
   try {
-    // Cargar categorías
-    const categoriasSnapshot = await db.collection("productos")
-      .orderBy("categoriaNombre")
-      .get();
+    const productosRef = collection(db, "productos");
+    const q = query(productosRef, orderBy("categoriaNombre"));
+    const snapshot = await getDocs(q);
     
     const categorias = new Set();
     const marcas = new Set();
     const generos = new Set();
     
-    categoriasSnapshot.docs.forEach(doc => {
+    snapshot.docs.forEach(doc => {
       const data = doc.data();
       if (data.categoriaNombre) categorias.add(data.categoriaNombre);
       if (data.marcaNombre) marcas.add(data.marcaNombre);
@@ -477,13 +761,9 @@ function cargarEstadoFiltros() {
  */
 async function actualizarEstadisticas() {
   try {
-    const totalSnapshot = await db.collection("productos").get();
-    const totalGeneral = totalSnapshot.docs.length;
-    
-    // Aquí podrías agregar más estadísticas como:
-    // - Productos en oferta
-    // - Productos más vendidos
-    // - etc.
+    const productosRef = collection(db, "productos");
+    const snapshot = await getDocs(productosRef);
+    const totalGeneral = snapshot.docs.length;
     
     console.log(`Total de productos en la base de datos: ${totalGeneral}`);
   } catch (error) {
@@ -496,13 +776,25 @@ async function actualizarEstadisticas() {
 // =================================
 
 /**
- * 🎧 Configurar todos los event listeners
+ * 🎛️ Configurar todos los event listeners
  */
 function configurarEventListeners() {
   // Filtros con debounce para optimizar performance
-  elementos.search.addEventListener("input", debounce(() => {
+  elementos.search.addEventListener("input", debounce(async (e) => {
+    const textoBusqueda = e.target.value.toLowerCase().trim();
+    
+    if (textoBusqueda === '') {
+      // Si el campo está vacío, restaurar vista normal
+      resetearPaginacion();
+      return;
+    }
+    
+    // Guardar filtros y realizar búsqueda inteligente
     guardarEstadoFiltros();
-    resetearPaginacion();
+    filtrosActivos = obtenerFiltros();
+    
+    // Realizar búsqueda inteligente directamente
+    await realizarBusquedaInteligente(textoBusqueda);
   }, 500));
   
   elementos.categoria.addEventListener("change", () => {
@@ -522,7 +814,20 @@ function configurarEventListeners() {
   
   elementos.orden.addEventListener("change", () => {
     guardarEstadoFiltros();
-    resetearPaginacion();
+    // Si estamos en modo buffer, reordenar los resultados
+    if (modoBuffer) {
+      const orden = elementos.orden.value;
+      productosBuffer.sort((a, b) => {
+        const precioA = a.data().precioVenta;
+        const precioB = b.data().precioVenta;
+        return orden === "asc" ? precioA - precioB : precioB - precioA;
+      });
+      indiceBuffer = 0;
+      paginaActual = 1;
+      mostrarPaginaBuffer();
+    } else {
+      resetearPaginacion();
+    }
   });
   
   // Botón limpiar filtros
@@ -531,7 +836,7 @@ function configurarEventListeners() {
     limpiarFiltros();
   });
 
-  // Navegación de páginas
+  // Navegación de páginas mejorada
   elementos.next.addEventListener("click", () => {
     if (!elementos.next.disabled) {
       cargarProductos("next");
@@ -539,7 +844,7 @@ function configurarEventListeners() {
   });
 
   elementos.prev.addEventListener("click", () => {
-    if (!elementos.prev.disabled && stackDocs.length > 1) {
+    if (!elementos.prev.disabled && paginaActual > 1) {
       cargarProductos("prev");
     }
   });
@@ -588,8 +893,15 @@ async function inicializarApp() {
     // Cargar estado guardado de filtros
     cargarEstadoFiltros();
     
-    // Cargar productos iniciales
-    await cargarProductos();
+    // Si hay texto de búsqueda guardado, realizar búsqueda inteligente
+    const filtrosIniciales = obtenerFiltros();
+    if (filtrosIniciales.search) {
+      filtrosActivos = filtrosIniciales;
+      await realizarBusquedaInteligente(filtrosIniciales.search);
+    } else {
+      // Cargar productos iniciales normalmente
+      await cargarProductos("first");
+    }
     
     // Actualizar estadísticas
     await actualizarEstadisticas();
@@ -646,11 +958,14 @@ function iniciarBusquedaPorVoz() {
       mostrarNotificacion('🎤 Escuchando...', 'info');
     };
     
-    recognition.onresult = (event) => {
+    recognition.onresult = async (event) => {
       const transcript = event.results[0][0].transcript;
       elementos.search.value = transcript;
       mostrarNotificacion(`🔍 Buscando: "${transcript}"`, 'success');
-      resetearPaginacion();
+      
+      // Realizar búsqueda inteligente con el texto reconocido
+      filtrosActivos = obtenerFiltros();
+      await realizarBusquedaInteligente(transcript.toLowerCase().trim());
     };
     
     recognition.onerror = () => {
@@ -664,7 +979,7 @@ function iniciarBusquedaPorVoz() {
 }
 
 /**
- * 📤 Exportar lista de productos actual
+ * 📊 Exportar lista de productos actual
  */
 function exportarProductos() {
   const productosActuales = Array.from(document.querySelectorAll('.product-card')).map(card => {
@@ -684,10 +999,111 @@ function exportarProductos() {
   a.click();
   window.URL.revokeObjectURL(url);
   
-  mostrarNotificacion('📤 Lista exportada correctamente', 'success');
+  mostrarNotificacion('📊 Lista exportada correctamente', 'success');
 }
+
+/**
+ * 🎯 Resaltar texto de búsqueda en los productos
+ * @param {string} texto - Texto original
+ * @param {string} busqueda - Término de búsqueda
+ * @returns {string} Texto con resaltado HTML
+ */
+function resaltarTexto(texto, busqueda) {
+  if (!busqueda || !texto) return texto;
+  
+  const regex = new RegExp(`(${busqueda})`, 'gi');
+  return texto.replace(regex, '<mark class="bg-yellow-200 px-1 rounded">$1</mark>');
+}
+
+/**
+ * 🔄 Actualizar tarjetas de producto con resaltado de búsqueda
+ */
+function actualizarResaltadoBusqueda() {
+  if (!filtrosActivos.search) return;
+  
+  const cards = document.querySelectorAll('.product-card');
+  cards.forEach(card => {
+    const titulo = card.querySelector('h3');
+    const descripcion = card.querySelector('.text-gray-600');
+    
+    if (titulo && titulo.textContent) {
+      titulo.innerHTML = resaltarTexto(titulo.textContent, filtrosActivos.search);
+    }
+    
+    if (descripcion && descripcion.textContent) {
+      descripcion.innerHTML = resaltarTexto(descripcion.textContent, filtrosActivos.search);
+    }
+  });
+}
+
+/**
+ * 📱 Detectar si el usuario está en dispositivo móvil
+ * @returns {boolean} True si es móvil
+ */
+function esMobile() {
+  return window.innerWidth <= 768 || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+}
+
+/**
+ * 🎨 Aplicar animaciones optimizadas para móvil
+ */
+function optimizarParaMobile() {
+  if (esMobile()) {
+    // Reducir animaciones en móviles para mejor rendimiento
+    const style = document.createElement('style');
+    style.innerHTML = `
+      .fade-in { animation-duration: 0.2s !important; }
+      .product-card { transition-duration: 0.2s !important; }
+    `;
+    document.head.appendChild(style);
+    
+    console.log('🔧 Optimizaciones móviles aplicadas');
+  }
+}
+
+/**
+ * 🧠 Sistema de caché inteligente para mejorar rendimiento
+ */
+const cache = {
+  productos: new Map(),
+  filtros: new Map(),
+  
+  // Guardar productos en caché
+  guardarProductos(clave, productos) {
+    this.productos.set(clave, {
+      data: productos,
+      timestamp: Date.now()
+    });
+  },
+  
+  // Obtener productos del caché
+  obtenerProductos(clave) {
+    const cached = this.productos.get(clave);
+    if (!cached) return null;
+    
+    // Verificar si el caché no ha expirado (5 minutos)
+    const CACHE_EXPIRY = 5 * 60 * 1000;
+    if (Date.now() - cached.timestamp > CACHE_EXPIRY) {
+      this.productos.delete(clave);
+      return null;
+    }
+    
+    return cached.data;
+  },
+  
+  // Limpiar caché
+  limpiar() {
+    this.productos.clear();
+    this.filtros.clear();
+  }
+};
 
 // Exponer funciones globales para uso desde HTML
 window.agregarAlCarrito = agregarAlCarrito;
 window.iniciarBusquedaPorVoz = iniciarBusquedaPorVoz;
 window.exportarProductos = exportarProductos;
+
+// Aplicar optimizaciones al cargar
+document.addEventListener('DOMContentLoaded', () => {
+  optimizarParaMobile();
+});

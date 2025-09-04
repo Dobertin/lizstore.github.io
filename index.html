@@ -3,11 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Catálogo de Productos - LizaChick</title>
-  
-  <!-- Firebase Scripts -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js"></script>
+  <title>LizaChick-Store</title>
   
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -20,7 +16,7 @@
   <header class="bg-white shadow-lg sticky top-0 z-50">
     <div class="container mx-auto px-6 py-4">
       <h1 class="text-4xl font-bold text-center bg-gradient-to-r from-pink-600 to-purple-600 bg-clip-text text-transparent">
-        🛍️ Catálogo de Productos
+        🛍️ LizaChick Productos
       </h1>
     </div>
   </header>
@@ -75,6 +71,22 @@
       </div>
     </div>
 
+    <!-- Paginación Mejorada -->
+    <nav class="flex justify-center items-center mt-8 gap-4">
+      <button id="prev" class="px-6 py-3 bg-gradient-to-r from-pink-500 to-purple-500 text-white rounded-xl shadow-lg hover:shadow-xl disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed transition-all transform hover:scale-105 disabled:hover:scale-100">
+        ⬅️ Anterior
+      </button>
+      
+      <div class="px-4 py-2 bg-white rounded-lg shadow">
+        <span class="text-gray-600">Página </span>
+        <span id="paginaActual" class="font-bold text-pink-600">1</span>
+      </div>
+      
+      <button id="next" class="px-6 py-3 bg-gradient-to-r from-pink-500 to-purple-500 text-white rounded-xl shadow-lg hover:shadow-xl disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed transition-all transform hover:scale-105 disabled:hover:scale-100">
+        Siguiente ➡️
+      </button>
+    </nav>
+    
     <!-- Loading Spinner -->
     <div id="loading" class="hidden flex justify-center items-center py-12">
       <div class="loading-spinner"></div>
@@ -110,7 +122,7 @@
 
   <!-- Footer -->
   <footer class="bg-gray-800 text-white text-center py-6 mt-12">
-    <p>&copy; 2025 Tienda Online. Todos los derechos reservados.</p>
+    <p>&copy; 2025 LizaChick Store. Todos los derechos reservados.</p>
   </footer>
 
   <!-- JavaScript Personalizado -->
