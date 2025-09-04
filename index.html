@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Catálogo de Productos - Tienda Online</title>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .loading-spinner {
+      border: 4px solid #f3f4f6;
+      border-top: 4px solid #ec4899;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    
+    .offer-badge {
+      animation: pulse 2s infinite;
+    }
+    
+    .product-card {
+      transition: all 0.3s ease;
+    }
+    
+    .product-card:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    }
+    
+    .fade-in {
+      animation: fadeIn 0.5s ease-in;
+    }
+    
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-gray-50 to-gray-100 min-h-screen">
+  <!-- Header -->
+  <header class="bg-white shadow-lg sticky top-0 z-50">
+    <div class="container mx-auto px-6 py-4">
+      <h1 class="text-4xl font-bold text-center bg-gradient-to-r from-pink-600 to-purple-600 bg-clip-text text-transparent">
+        🛍️ Catálogo de Productos
+      </h1>
+    </div>
+  </header>
+
+  <main class="container mx-auto px-6 py-8">
+    <!-- Filtros Mejorados -->
+    <section class="bg-white rounded-2xl shadow-xl p-6 mb-8">
+      <h2 class="text-xl font-semibold mb-4 text-gray-700">🔍 Filtros de Búsqueda</h2>
+      
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+        <div class="relative">
+          <input id="search" type="text" placeholder="Buscar productos..."
+            class="w-full p-3 pl-10 border-2 border-gray-200 rounded-xl focus:border-pink-500 focus:ring-2 focus:ring-pink-200 transition-all" />
+          <span class="absolute left-3 top-3 text-gray-400">🔍</span>
+        </div>
+
+        <select id="categoria" class="p-3 border-2 border-gray-200 rounded-xl focus:border-pink-500 focus:ring-2 focus:ring-pink-200 transition-all">
+          <option value="">📦 Todas las categorías</option>
+        </select>
+
+        <select id="marca" class="p-3 border-2 border-gray-200 rounded-xl focus:border-pink-500 focus:ring-2 focus:ring-pink-200 transition-all">
+          <option value="">🏷️ Todas las marcas</option>
+        </select>
+
+        <select id="genero" class="p-3 border-2 border-gray-200 rounded-xl focus:border-pink-500 focus:ring-2 focus:ring-pink-200 transition-all">
+          <option value="">👥 Todos los géneros</option>
+        </select>
+      </div>
+
+      <div class="flex flex-col sm:flex-row justify-between items-center gap-4">
+        <div class="flex items-center gap-2">
+          <label class="text-gray-600 font-medium">💰 Ordenar por precio:</label>
+          <select id="orden" class="p-2 border-2 border-gray-200 rounded-lg focus:border-pink-500">
+            <option value="asc">Menor a mayor</option>
+            <option value="desc">Mayor a menor</option>
+          </select>
+        </div>
+        
+        <button id="clearFilters" class="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors">
+          🗑️ Limpiar filtros
+        </button>
+      </div>
+    </section>
+
+    <!-- Estadísticas -->
+    <div class="bg-white rounded-2xl shadow-xl p-4 mb-8">
+      <div class="flex justify-center">
+        <div class="text-center">
+          <span class="text-2xl font-bold text-pink-600" id="totalProductos">0</span>
+          <p class="text-gray-600">productos encontrados</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Loading Spinner -->
+    <div id="loading" class="hidden flex justify-center items-center py-12">
+      <div class="loading-spinner"></div>
+      <span class="ml-3 text-gray-600">Cargando productos...</span>
+    </div>
+
+    <!-- Grid de Productos -->
+    <section id="productos" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 mb-8"></section>
+
+    <!-- Mensaje cuando no hay productos -->
+    <div id="noProductos" class="hidden text-center py-12">
+      <div class="text-6xl mb-4">📭</div>
+      <h3 class="text-xl font-semibold text-gray-600 mb-2">No se encontraron productos</h3>
+      <p class="text-gray-500">Intenta ajustar los filtros de búsqueda</p>
+    </div>
+
+    <!-- Paginación Mejorada -->
+    <nav class="flex justify-center items-center mt-8 gap-4">
+      <button id="prev" class="px-6 py-3 bg-gradient-to-r from-pink-500 to-purple-500 text-white rounded-xl shadow-lg hover:shadow-xl disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed transition-all transform hover:scale-105 disabled:hover:scale-100">
+        ⬅️ Anterior
+      </button>
+      
+      <div class="px-4 py-2 bg-white rounded-lg shadow">
+        <span class="text-gray-600">Página </span>
+        <span id="paginaActual" class="font-bold text-pink-600">1</span>
+      </div>
+      
+      <button id="next" class="px-6 py-3 bg-gradient-to-r from-pink-500 to-purple-500 text-white rounded-xl shadow-lg hover:shadow-xl disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed transition-all transform hover:scale-105 disabled:hover:scale-100">
+        Siguiente ➡️
+      </button>
+    </nav>
+  </main>
+
+  <!-- Footer -->
+  <footer class="bg-gray-800 text-white text-center py-6 mt-12">
+    <p>&copy; 2025 Tienda Online. Todos los derechos reservados.</p>
+  </footer>
+
+  <script>
+    // 🔧 Configuración Firebase
+    const firebaseConfig = {
+      apiKey: "AIzaSyC_QWs7nybX_NDTW51UvAgSXV4kmIagw2Q",
+      authDomain: "lizaventas-267bb.firebaseapp.com",
+      databaseURL: "https://lizaventas-267bb-default-rtdb.firebaseio.com",
+      projectId: "lizaventas-267bb",
+      storageBucket: "lizaventas-267bb.firebasestorage.app",
+      messagingSenderId: "622337953195",
+      appId: "1:622337953195:web:e2ea054eb6d3d9b4c9d6ee",
+      measurementId: "G-LKESG2YXZC"
+    };
+
+    const app = firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    // 📊 Variables globales
+    const PRODUCTOS_POR_PAGINA = 8;
+    let ultimoDoc = null;
+    let primerDoc = null;
+    let stackDocs = [];
+    let paginaActual = 1;
+    let totalProductosMostrados = 0;
+    
+    // 📱 Elementos del DOM
+    const elementos = {
+      productos: document.getElementById("productos"),
+      loading: document.getElementById("loading"),
+      noProductos: document.getElementById("noProductos"),
+      search: document.getElementById("search"),
+      categoria: document.getElementById("categoria"),
+      marca: document.getElementById("marca"),
+      genero: document.getElementById("genero"),
+      orden: document.getElementById("orden"),
+      prev: document.getElementById("prev"),
+      next: document.getElementById("next"),
+      clearFilters: document.getElementById("clearFilters"),
+      paginaActual: document.getElementById("paginaActual"),
+      totalProductos: document.getElementById("totalProductos")
+    };
+
+    // 🔍 Construir consulta Firestore
+    function construirQuery(direccion = "next") {
+      const filtros = obtenerFiltros();
+      let query = db.collection("productos");
+
+      // Aplicar filtros exactos
+      if (filtros.categoria) query = query.where("categoriaNombre", "==", filtros.categoria);
+      if (filtros.marca) query = query.where("marcaNombre", "==", filtros.marca);
+      if (filtros.genero) query = query.where("genero", "==", filtros.genero);
+
+      // Ordenamiento
+      query = query.orderBy("precioVenta", filtros.orden);
+
+      // Paginación
+      if (direccion === "next" && ultimoDoc) {
+        query = query.startAfter(ultimoDoc);
+      } else if (direccion === "prev" && primerDoc) {
+        query = query.endBefore(primerDoc);
+      }
+
+      return query.limit(PRODUCTOS_POR_PAGINA);
+    }
+
+    // 🎯 Obtener filtros actuales
+    function obtenerFiltros() {
+      return {
+        search: elementos.search.value.toLowerCase().trim(),
+        categoria: elementos.categoria.value,
+        marca: elementos.marca.value,
+        genero: elementos.genero.value,
+        orden: elementos.orden.value
+      };
+    }
+
+    // 📦 Cargar productos desde Firestore
+    async function cargarProductos(direccion = "next") {
+      mostrarLoading(true);
+      
+      try {
+        const query = construirQuery(direccion);
+        const snapshot = await query.get();
+
+        if (snapshot.empty) {
+          mostrarProductosVacios();
+          return;
+        }
+
+        // Gestionar documentos para paginación
+        primerDoc = snapshot.docs[0];
+        ultimoDoc = snapshot.docs[snapshot.docs.length - 1];
+
+        if (direccion === "next") {
+          stackDocs.push(primerDoc);
+          paginaActual++;
+        } else if (direccion === "prev") {
+          stackDocs.pop();
+          paginaActual--;
+        }
+
+        await renderizarProductos(snapshot.docs);
+        actualizarEstadoPaginacion(snapshot.docs.length);
+        
+      } catch (error) {
+        console.error("Error cargando productos:", error);
+        mostrarError();
+      } finally {
+        mostrarLoading(false);
+      }
+    }
+
+    // 🎨 Renderizar productos con animaciones
+    async function renderizarProductos(docs) {
+      const filtros = obtenerFiltros();
+      elementos.productos.innerHTML = "";
+      totalProductosMostrados = 0;
+
+      // Aplicar filtro de búsqueda por texto
+      const docsFiltrados = docs.filter(doc => {
+        const producto = doc.data();
+        return !filtros.search || producto.nombre.toLowerCase().includes(filtros.search);
+      });
+
+      if (docsFiltrados.length === 0) {
+        mostrarProductosVacios();
+        return;
+      }
+
+      // Renderizar cada producto
+      docsFiltrados.forEach((doc, index) => {
+        setTimeout(() => {
+          const producto = doc.data();
+          const card = crearTarjetaProducto(producto);
+          elementos.productos.appendChild(card);
+          totalProductosMostrados++;
+        }, index * 100); // Animación escalonada
+      });
+
+      // Actualizar contador
+      setTimeout(() => {
+        elementos.totalProductos.textContent = totalProductosMostrados;
+        elementos.noProductos.classList.add("hidden");
+        elementos.productos.classList.remove("hidden");
+      }, docsFiltrados.length * 100);
+    }
+
+    // 🏷️ Crear tarjeta de producto mejorada
+    function crearTarjetaProducto(producto) {
+      const card = document.createElement("div");
+      card.className = "product-card bg-white rounded-2xl shadow-lg overflow-hidden fade-in";
+
+      // Determinar si está en oferta (ejemplo: productos con descuento > 10%)
+      const descuento = producto.descuento || 0;
+      const enOferta = descuento > 10;
+      const precioOriginal = descuento > 0 ? producto.precioVenta / (1 - descuento/100) : null;
+
+      card.innerHTML = `
+        <div class="relative">
+          <img src="${producto.imagenUrl || '/api/placeholder/300/200'}" 
+               alt="${producto.nombre}" 
+               class="w-full h-48 object-cover"
+               onerror="this.src='/api/placeholder/300/200'" />
+          
+          ${enOferta ? `
+            <div class="offer-badge absolute top-3 left-3 bg-gradient-to-r from-red-500 to-pink-500 text-white px-3 py-1 rounded-full text-sm font-bold shadow-lg">
+              🏷️ EN OFERTA -${descuento}%
+            </div>
+          ` : ''}
+          
+          <div class="absolute top-3 right-3 bg-white/90 backdrop-blur-sm rounded-full px-2 py-1 text-xs font-semibold text-gray-700">
+            ${producto.categoriaNombre || 'Sin categoría'}
+          </div>
+        </div>
+
+        <div class="p-4">
+          <div class="flex justify-between items-start mb-2">
+            <h3 class="text-lg font-bold text-gray-800 line-clamp-2">${producto.nombre}</h3>
+          </div>
+
+          <div class="flex items-center gap-2 mb-2">
+            <span class="text-sm text-gray-500">🏷️ ${producto.marcaNombre || 'Sin marca'}</span>
+            ${producto.genero ? `<span class="text-sm text-gray-500">• ${producto.genero}</span>` : ''}
+          </div>
+
+          <p class="text-gray-600 text-sm mb-3 line-clamp-2">${producto.descripcion || 'Sin descripción disponible'}</p>
+
+          <div class="flex items-center justify-between">
+            <div class="flex flex-col">
+              ${precioOriginal && enOferta ? `
+                <span class="text-sm text-gray-500 line-through">S/ ${precioOriginal.toFixed(2)}</span>
+              ` : ''}
+              <span class="text-2xl font-bold text-pink-600">S/ ${producto.precioVenta.toFixed(2)}</span>
+            </div>
+            
+            <button class="bg-gradient-to-r from-pink-500 to-purple-500 text-white px-4 py-2 rounded-xl hover:shadow-lg transition-all transform hover:scale-105">
+              🛒 Agregar
+            </button>
+          </div>
+
+          ${producto.stock !== undefined ? `
+            <div class="mt-3 text-xs text-gray-500">
+              Stock: ${producto.stock > 0 ? `${producto.stock} disponibles` : 'Agotado'}
+            </div>
+          ` : ''}
+        </div>
+      `;
+
+      return card;
+    }
+
+    // 🔄 Funciones de utilidad
+    function mostrarLoading(mostrar) {
+      elementos.loading.classList.toggle("hidden", !mostrar);
+      elementos.productos.classList.toggle("hidden", mostrar);
+      elementos.noProductos.classList.add("hidden");
+    }
+
+    function mostrarProductosVacios() {
+      elementos.productos.classList.add("hidden");
+      elementos.noProductos.classList.remove("hidden");
+      elementos.totalProductos.textContent = "0";
+      totalProductosMostrados = 0;
+    }
+
+    function mostrarError() {
+      elementos.productos.innerHTML = `
+        <div class="col-span-full text-center py-12">
+          <div class="text-6xl mb-4">⚠️</div>
+          <h3 class="text-xl font-semibold text-red-600 mb-2">Error al cargar productos</h3>
+          <p class="text-gray-500">Por favor, intenta de nuevo más tarde</p>
+        </div>
+      `;
+    }
+
+    function resetearPaginacion() {
+      ultimoDoc = null;
+      primerDoc = null;
+      stackDocs = [];
+      paginaActual = 1;
+      elementos.paginaActual.textContent = paginaActual;
+      cargarProductos();
+    }
+
+    function actualizarEstadoPaginacion(cantidadDocs) {
+      elementos.prev.disabled = stackDocs.length <= 1;
+      elementos.next.disabled = cantidadDocs < PRODUCTOS_POR_PAGINA;
+      elementos.paginaActual.textContent = paginaActual;
+    }
+
+    function limpiarFiltros() {
+      elementos.search.value = "";
+      elementos.categoria.value = "";
+      elementos.marca.value = "";
+      elementos.genero.value = "";
+      elementos.orden.value = "asc";
+      resetearPaginacion();
+    }
+
+    // 🎧 Event Listeners
+    elementos.search.addEventListener("input", debounce(resetearPaginacion, 500));
+    elementos.categoria.addEventListener("change", resetearPaginacion);
+    elementos.marca.addEventListener("change", resetearPaginacion);
+    elementos.genero.addEventListener("change", resetearPaginacion);
+    elementos.orden.addEventListener("change", resetearPaginacion);
+    elementos.clearFilters.addEventListener("click", limpiarFiltros);
+
+    elementos.next.addEventListener("click", () => cargarProductos("next"));
+    elementos.prev.addEventListener("click", () => {
+      if (stackDocs.length > 1) {
+        cargarProductos("prev");
+      }
+    });
+
+    // 🚀 Función debounce para optimizar búsqueda
+    function debounce(func, wait) {
+      let timeout;
+      return function executedFunction(...args) {
+        const later = () => {
+          clearTimeout(timeout);
+          func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+      };
+    }
+
+    // 🏃‍♂️ Inicialización
+    document.addEventListener("DOMContentLoaded", () => {
+      cargarProductos();
+    });
+  </script>
+</body>
+</html>
