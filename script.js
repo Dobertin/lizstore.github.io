@@ -3,10 +3,13 @@
 // =================================
 
 // 🔧 Configuración Firebase
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getFirestore, collection, query, where, orderBy, limit, startAfter, endBefore, getDocs } 
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
 const firebaseConfig = {
   apiKey: "AIzaSyC_QWs7nybX_NDTW51UvAgSXV4kmIagw2Q",
   authDomain: "lizaventas-267bb.firebaseapp.com",
-  databaseURL: "https://lizaventas-267bb-default-rtdb.firebaseio.com",
   projectId: "lizaventas-267bb",
   storageBucket: "lizaventas-267bb.firebasestorage.app",
   messagingSenderId: "622337953195",
@@ -15,8 +18,9 @@ const firebaseConfig = {
 };
 
 // Inicializar Firebase
-const app = firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
 
 // 📊 Variables globales
 const PRODUCTOS_POR_PAGINA = 8;
