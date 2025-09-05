@@ -19,7 +19,7 @@ const db = getFirestore(app);
 
 
 // 📊 Variables globales
-const PRODUCTOS_POR_PAGINA = 10;
+const PRODUCTOS_POR_PAGINA = 50;
 let ultimoDoc = null;
 let primerDoc = null;
 let paginaActual = 1;
@@ -113,8 +113,7 @@ async function realizarBusquedaInteligente(textoBusqueda) {
   mostrarLoading(true);
   
   try {
-    console.log(`🔍 Iniciando búsqueda inteligente para: "${textoBusqueda}"`);
-    
+      
     // Construir consulta para buscar en toda la colección
     const productosRef = collection(db, 'productos');
     let condiciones = [];
@@ -136,9 +135,7 @@ async function realizarBusquedaInteligente(textoBusqueda) {
     // Obtener TODOS los productos que coincidan con los filtros (sin límite para búsqueda)
     const q = query(productosRef, ...condiciones);
     const snapshot = await getDocs(q);
-    
-    console.log(`📊 Productos obtenidos de Firestore: ${snapshot.docs.length}`);
-    
+        
     // Filtrar por texto de búsqueda en memoria
     const productosFiltrados = snapshot.docs.filter(doc => {
       const producto = doc.data();
@@ -152,8 +149,6 @@ async function realizarBusquedaInteligente(textoBusqueda) {
              categoria.includes(textoBusqueda) ||
              marca.includes(textoBusqueda);
     });
-    
-    console.log(`🎯 Productos encontrados con búsqueda: ${productosFiltrados.length}`);
     
     if (productosFiltrados.length === 0) {
       // No se encontraron productos
@@ -189,8 +184,6 @@ function mostrarPaginaBuffer() {
   const inicio = indiceBuffer;
   const fin = Math.min(inicio + PRODUCTOS_POR_PAGINA, productosBuffer.length);
   const productosPagina = productosBuffer.slice(inicio, fin);
-  
-  console.log(`📄 Mostrando productos ${inicio + 1}-${fin} de ${productosBuffer.length}`);
   
   // Renderizar productos de la página actual
   renderizarProductosBuffer(productosPagina);
@@ -240,13 +233,6 @@ function actualizarEstadoPaginacionBuffer() {
   elementos.prev.disabled = paginaActual <= 1;
   elementos.next.disabled = paginaActual >= totalPaginas;
   elementos.paginaActual.textContent = `${paginaActual} de ${totalPaginas}`;
-  
-  console.log(`🎮 Buffer paginación:`, {
-    paginaActual,
-    totalPaginas,
-    totalProductos: productosBuffer.length,
-    indiceBuffer
-  });
 }
 
 /**
@@ -407,7 +393,6 @@ async function renderizarProductos(docs) {
     // Si no hay resultados en la página actual y hay texto de búsqueda,
     // realizar búsqueda en toda la colección
     if (filtrosActivos.search) {
-      console.log("🔍 No se encontraron resultados en la página actual, buscando en toda la colección...");
       await realizarBusquedaInteligente(filtrosActivos.search);
       return;
     }
@@ -584,17 +569,6 @@ function actualizarEstadoPaginacion(cantidadDocs) {
   elementos.prev.disabled = paginaActual <= 1;
   elementos.next.disabled = cantidadDocs < PRODUCTOS_POR_PAGINA;
   elementos.paginaActual.textContent = paginaActual;
-  
-  // Debug mejorado
-  console.log(`🔍 Estado paginación:`, {
-    paginaActual,
-    cantidadDocs,
-    prevDisabled: elementos.prev.disabled,
-    nextDisabled: elementos.next.disabled,
-    tieneUltimoDoc: !!ultimoDoc,
-    tienePrimerDoc: !!primerDoc,
-    modoBuffer
-  });
 }
 
 /**
@@ -632,8 +606,6 @@ function debounce(func, wait) {
  * @param {string} productoId - ID del producto
  */
 function agregarAlCarrito(productoId) {
-  console.log(`Agregando producto ${productoId} al carrito`);
-  
   // Mostrar feedback visual
   mostrarNotificacion('📦 Producto agregado al carrito', 'success');
   
@@ -765,7 +737,6 @@ async function actualizarEstadisticas() {
     const snapshot = await getDocs(productosRef);
     const totalGeneral = snapshot.docs.length;
     
-    console.log(`Total de productos en la base de datos: ${totalGeneral}`);
   } catch (error) {
     console.error("Error actualizando estadísticas:", error);
   }
@@ -905,8 +876,6 @@ async function inicializarApp() {
     
     // Actualizar estadísticas
     await actualizarEstadisticas();
-    
-    console.log("🎉 Aplicación inicializada correctamente");
     
   } catch (error) {
     console.error("❌ Error inicializando la aplicación:", error);
@@ -1056,8 +1025,6 @@ function optimizarParaMobile() {
       .product-card { transition-duration: 0.2s !important; }
     `;
     document.head.appendChild(style);
-    
-    console.log('🔧 Optimizaciones móviles aplicadas');
   }
 }
 
